@@ -1,0 +1,2 @@
+# Calculus_Calculator
+Even though I'm mostly done with basic calculus, I thought it would be fun to put all the stuff I learned into a calculator. I will admit I used plenty of online calculus calculators online when verifying my work for classes, so I thought it would be fun to make my own, perhaps as a way of giving back. This program should allow you to find derivatives and integrals, perhaps along with some basic multivariable calculus stuff, such as finding divergence or curl.
