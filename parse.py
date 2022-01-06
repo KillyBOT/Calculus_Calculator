@@ -179,8 +179,7 @@ def buildTree(tokens):
 
     return tokens
                 
-#The actual parsing function. Takes in a string and returns an operation tree. Also takes parentheses into account.
+#The actual parsing function. Takes in a string and returns an operation tree.
 def parse(st):
-    #First, look for parentheses
-    print(tokenize(st))
+    st = st.replace(" ","") #Get rid off any spaces
     return buildTree(tokenize(st))
