@@ -25,7 +25,7 @@ opPrecedenceDict = {
 }
 
 def exprStr(expr):
-    if expr==exprType.FUNC :
+    if expr==exprType.FUNC:
         return "Function"
     elif expr==exprType.NUM:
         return "Number"
@@ -38,7 +38,7 @@ def exprStr(expr):
     
     return "You should never see this"
 
-class parseNode:
+class exprNode:
     def __init__(self,type,data=None,leftChild=None,rightChild=None):
         self.type = type
         self.data = data
@@ -58,7 +58,7 @@ class parseNode:
         return str(self)
 
 #Function names compiled into a regex expression. I'll probably create a separate file to put these in later.
-funcNames = ["arcsin","arccos","arctan","log","sqrt","ln","sin","cos","tan"]
+funcNames = ["arcsin","arccos","arctan","log","sqrt","ln","sin","cos","tan","abs"]
 funcNames.sort(key=lambda x:len(x),reverse=True)
 
 funcPatternStr = "|".join(funcNames)
@@ -70,7 +70,7 @@ constNames.sort(key=lambda x:len(x),reverse=True)
 constPatternStr = "|".join(constNames)
 
 patternStrDict = {
-    exprType.PAR: "\(|\)",
+    exprType.PAR: "\(|\)|\|",
     exprType.FUNC: funcPatternStr,
     exprType.CONST: constPatternStr,
     exprType.VAR: "[a-zA-Z][0-9]+|[a-df-zA-Z]\_.|[a-zA-Z]",
@@ -81,21 +81,40 @@ patternStrDict = {
 #The order here matters a lot, as functions > variable names > numbers
 groupPatternStr = "(" + "|".join(patternStrDict.values()) + ")"
 
-#Tokenize an input string into a bunch of parseNode objects. Also adds in a multiplication signs in some instances (5x -> 5*x, for example)
+#Tokenize an input string into a bunch of exprNode objects. Also adds in a multiplication signs in some instances (5x -> 5*x, for example)
 def tokenize(st):
     tokens = []
 
     groups = re.findall(groupPatternStr,st)
 
+    seenAbs = False
+
     for group in groups:
         for expr, pattern in patternStrDict.items():
             if re.match(pattern,group):
-                if expr in [exprType.CONST,exprType.VAR,exprType.FUNC] and tokens and tokens[-1].type in [exprType.CONST,exprType.VAR,exprType.NUM]:
-                    tokens.append(parseNode(exprType.OP,"*"))
-                tokens.append(parseNode(expr,int(group) if expr == exprType.NUM else group))
+
+                #Parsing error where there are two 
+                if expr == exprType.PAR and group == ")" and tokens and tokens[-1].type == exprType.PAR and tokens[-1].data == "(":
+                    raise ParseError("Empty set of parentheses")
+
+                #Multiplication case. Very messy, and probably can be done better, but there are so many edge cases to consider that I don't think there's a better way of doing this
+                if (expr in [exprType.CONST,exprType.VAR,exprType.FUNC] or (expr == exprType.PAR and (group == "(" or (group == "|" and not seenAbs)))) and tokens and (tokens[-1].type in [exprType.CONST,exprType.VAR,exprType.NUM] or tokens[-1].data == ")"):
+                    tokens.append(exprNode(exprType.OP,"*"))
+
+                #Vertical bar absolute value case
+                if expr == exprType.PAR and group == "|":
+                    if seenAbs:
+                        tokens.append(exprNode(exprType.PAR,")"))
+                    else:
+                        tokens.append(exprNode(exprType.FUNC,"abs"))
+                        tokens.append(exprNode(exprType.PAR,"("))
+                    seenAbs = not seenAbs
+                else:
+                    tokens.append(exprNode(expr,int(group) if expr == exprType.NUM else group))
+
                 break
 
-    print(tokens)
+    #print(tokens)
     return tokens
 
 #Build a tree based on the tokens given. Again, parentheses are not used here!
@@ -168,7 +187,7 @@ def tokenize(st):
         for ind in range(len(tokens)-1):
             if not ((tokens[ind].type == exprType.OP and not tokens[ind].rightChild) or (tokens[ind+1].type == exprType.OP and not tokens[ind+1].rightChild)):
                 hasMultCase = True
-                newNode = parseNode(exprType.OP,"*",deepcopy(tokens[ind]),deepcopy(tokens[ind+1]))
+                newNode = exprNode(exprType.OP,"*",deepcopy(tokens[ind]),deepcopy(tokens[ind+1]))
                 tokens[ind] = newNode
                 tokens.pop(ind+1)
                 break
@@ -182,7 +201,7 @@ def tokenize(st):
                     if tokens[ind].data == op:
                         try:
                             #Special case when the minus is at the front of the expression, since that indicates a negative number
-                            tokens[ind].leftChild = parseNode(exprType.NUM,0) if (op == "-" and ind == 0) else deepcopy(tokens[ind-1])
+                            tokens[ind].leftChild = exprNode(exprType.NUM,0) if (op == "-" and ind == 0) else deepcopy(tokens[ind-1])
                             tokens[ind].rightChild = deepcopy(tokens[ind+1])
                             tokens.pop(ind+1)
                             if ind > 0:
@@ -223,7 +242,7 @@ def shunting_yard(st):
                 outStack.append(opStack.pop())
 
             if not opStack:
-                raise ParseError
+                raise ParseError("No corresponding left parenthsis found for right parenthesis")
 
             opStack.pop()
 
@@ -232,32 +251,36 @@ def shunting_yard(st):
             
     for op in range(len(opStack)):
         if opStack[-1].data == "(":
-            raise ParseError
+            raise ParseError("No corresponding left parenthesis found for right parenthesis")
         outStack.append(opStack.pop())
 
-    print(outStack)
+    #print(outStack)
 
     #Turn the output stack into an abstract syntax tree
 
     s = []
 
     while outStack:
-        print(outStack,s)
+        #print(outStack,s)
         l = outStack.pop(0)
         if (l.type == exprType.FUNC or l.type == exprType.OP) and (l.rightChild == None):
             l.rightChild = s.pop()
-            if s:
+            if s and l.type == exprType.OP:
                 l.leftChild = s.pop()
-            
+
             outStack.insert(0,l)
             if len(outStack) == 1:
-                print(outStack[0])
+                #print(outStack[0])
                 return outStack[0]
 
         else:
             s.append(l)
 
     #This should never happen
-    raise ParseError
+    raise ParseError("Error converting from postfix tree to abstract syntax tree. This should never happen, so if it happens I don't know what to say...")
     return None
-            
+
+#Simplifies the abstract syntax tree given to it.
+#TODO: Work on this later
+def simplify(ast):
+    pass
