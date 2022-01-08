@@ -1,6 +1,7 @@
 import re
 from enum import Enum
 from copy import deepcopy
+from typing import final
 
 class ParseError(Exception):
     pass
@@ -13,6 +14,16 @@ class exprType(Enum):
     VAR=5,
     OP=6
 
+opPrecedenceDict = {
+    "(":7,
+    ")":6,
+    "^":5,
+    "*":4,
+    "/":3,
+    "+":2,
+    "-":1
+}
+
 def exprStr(expr):
     if expr==exprType.FUNC :
         return "Function"
@@ -22,6 +33,8 @@ def exprStr(expr):
         return "Variable"
     elif expr==exprType.OP:
         return "Operation"
+    elif expr==exprType.CONST:
+        return "Constant"
     
     return "You should never see this"
 
@@ -33,7 +46,8 @@ class parseNode:
         self.rightChild = rightChild
 
     def __str__(self):
-        retVal =  str(self.data)
+        #retVal =  exprStr(self.type) + " "+str(self.data)
+        retVal = str(self.data)
         if self.leftChild:
             retVal += " [" + str(self.leftChild) + "]"
         if self.rightChild:
@@ -67,7 +81,7 @@ patternStrDict = {
 #The order here matters a lot, as functions > variable names > numbers
 groupPatternStr = "(" + "|".join(patternStrDict.values()) + ")"
 
-#Tokenize an input string into a bunch of parseNode objects.
+#Tokenize an input string into a bunch of parseNode objects. Also adds in a multiplication signs in some instances (5x -> 5*x, for example)
 def tokenize(st):
     tokens = []
 
@@ -76,6 +90,8 @@ def tokenize(st):
     for group in groups:
         for expr, pattern in patternStrDict.items():
             if re.match(pattern,group):
+                if expr in [exprType.CONST,exprType.VAR,exprType.FUNC] and tokens and tokens[-1].type in [exprType.CONST,exprType.VAR,exprType.NUM]:
+                    tokens.append(parseNode(exprType.OP,"*"))
                 tokens.append(parseNode(expr,int(group) if expr == exprType.NUM else group))
                 break
 
@@ -83,7 +99,7 @@ def tokenize(st):
     return tokens
 
 #Build a tree based on the tokens given. Again, parentheses are not used here!
-def buildTree(tokens):
+"""def buildTree(tokens):
 
     #Follow this order of operations: functions, exponents, multiplication, division, addition, subtraction
     opOrder = ["*","/","+","-"] #I left out exponents because of a special multiplication rule. I do deal with them later though
@@ -178,8 +194,70 @@ def buildTree(tokens):
                 break
 
     return tokens
-                
+             
 #The actual parsing function. Takes in a string and returns an operation tree.
 def parse(st):
     st = st.replace(" ","") #Get rid off any spaces
     return buildTree(tokenize(st))
+"""
+
+#Turns out there's an algorithm called the shunting-yard algorithm that is even better at building a parsing tree, so I'll implement that and see if it works better
+def shunting_yard(st):
+    tokens = tokenize(st)
+    outStack = []
+    opStack = []
+
+    #Create a postfix notation string that will later turn into an abstract syntax tree
+    for token in tokens:
+        if token.type in [exprType.NUM, exprType.CONST, exprType.VAR]:
+            outStack.append(token)
+        elif token.type == exprType.FUNC or (token.type == exprType.PAR and token.data == "("):
+            opStack.append(token)
+        elif token.type == exprType.OP:
+            while opStack and (opStack[-1].type == exprType.OP or opStack[-1].data == ")") and (opPrecedenceDict[opStack[-1].data] > opPrecedenceDict[token.data] or (opPrecedenceDict[opStack[-1].data] == opPrecedenceDict[token.data] and token.data != "^")):
+                outStack.append(opStack.pop())
+            opStack.append(token)
+        elif token.type == exprType.PAR and token.data == ")":
+
+            while opStack and opStack[-1].data != "(":
+                outStack.append(opStack.pop())
+
+            if not opStack:
+                raise ParseError
+
+            opStack.pop()
+
+            if opStack and opStack[-1].type == exprType.FUNC:
+                outStack.append(opStack.pop())
+            
+    for op in range(len(opStack)):
+        if opStack[-1].data == "(":
+            raise ParseError
+        outStack.append(opStack.pop())
+
+    print(outStack)
+
+    #Turn the output stack into an abstract syntax tree
+
+    s = []
+
+    while outStack:
+        print(outStack,s)
+        l = outStack.pop(0)
+        if (l.type == exprType.FUNC or l.type == exprType.OP) and (l.rightChild == None):
+            l.rightChild = s.pop()
+            if s:
+                l.leftChild = s.pop()
+            
+            outStack.insert(0,l)
+            if len(outStack) == 1:
+                print(outStack[0])
+                return outStack[0]
+
+        else:
+            s.append(l)
+
+    #This should never happen
+    raise ParseError
+    return None
+            
